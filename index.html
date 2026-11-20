@@ -5,20 +5,15 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>Hausplan – Flur & Winterdienst</title>
 
-  <!-- iOS / Apple App-Einstellungen -->
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="Hausplan">
   <meta name="theme-color" content="#ffffff">
 
-  <!-- Minimalistisches Schwarz-Weiß-Icon (SVG als Data-URI) -->
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='18' fill='%23111111'/%3E%3Ctext x='50' y='67' font-family='Arial, sans-serif' font-size='52' font-weight='bold' fill='%23ffffff' text-anchor='middle'%3EH%3C/text%3E%3C/svg%3E">
   <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%23111111'/%3E%3Ctext x='50' y='67' font-family='Arial, sans-serif' font-size='52' font-weight='bold' fill='%23ffffff' text-anchor='middle'%3EH%3C/text%3E%3C/svg%3E">
-
-  <!-- Eingebettetes Web-Manifest (kein separates manifest.json nötig) -->
   <link rel="manifest" href="data:application/manifest+json,%7B%22name%22%3A%22Hausplan%20%E2%80%93%20Flur%20%26%20Winterdienst%22%2C%22short_name%22%3A%22Hausplan%22%2C%22start_url%22%3A%22.%22%2C%22display%22%3A%22standalone%22%2C%22background_color%22%3A%22%23ffffff%22%2C%22theme_color%22%3A%22%23111111%22%7D">
 
-  <!-- Bibliothek zum Auslesen von Google Kalender (.ics) & Serienterminen -->
   <script src="https://cdn.jsdelivr.net/npm/ical.js@1.5.0/build/ical.min.js"></script>
   <style>
     :root {
@@ -134,6 +129,12 @@
       border-top: 1px solid var(--border);
       padding-top: 12px;
       display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .footer-row {
+      display: flex;
       justify-content: space-between;
     }
 
@@ -159,19 +160,18 @@
   </main>
 
   <footer class="footer">
-    <span id="sync-status"><span class="status-dot"></span>Verbinde mit Kalender...</span>
-    <span>Turnus: Mo – So</span>
+    <div class="footer-row">
+      <span id="sync-status"><span class="status-dot"></span>Lade Kalenderdaten...</span>
+      <span>Turnus: Mo – So</span>
+    </div>
+    <div class="footer-row" id="debug-info" style="font-size: 0.72rem; opacity: 0.8;"></div>
   </footer>
 
   <script>
-    // Dein verknüpfter Google Kalender (Hausplan)
-    const ICAL_URL = "https://calendar.google.com/calendar/ical/871698cbe17d6d4210afd5cbf2649eace81cb26435a64df3358d55d9ce070368%40group.calendar.google.com/public/basic.ics";
-
-    // Referenz-Startdatum (Montag der Woche, in der RECHTS dran war: 16.11.2026)
+    const CALENDAR_FILE = "./calendar.ics?t=" + Date.now();
     const ANCHOR_MONDAY = new Date(2026, 10, 16);
     const ROTATION = ["RECHTS", "LINKS", "MITTE"];
 
-    // Hilfsfunktion: Montag der Woche zu einem Datum finden
     function getMonday(d) {
       const date = new Date(d.getFullYear(), d.getMonth(), d.getDate());
       const day = date.getDay();
@@ -179,7 +179,6 @@
       return new Date(date.setDate(diff));
     }
 
-    // Hilfsfunktion: Kalenderwoche berechnen (ISO 8601)
     function getISOWeek(d) {
       const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
       const dayNum = date.getUTCDay() || 7;
@@ -188,12 +187,24 @@
       return Math.ceil((((date - yearStart) / 86400000) + 1) / 7);
     }
 
-    // Hilfsfunktion: Datum formatieren (z.B. 16.11.)
     function fmtDate(d) {
       return String(d.getDate()).padStart(2, '0') + '.' + String(d.getMonth() + 1).padStart(2, '0') + '.';
     }
 
-    // Standard-Turnus berechnen (Fallback)
+    // Wandelt ein Datum in einen reinen Tages-Schlüssel (YYYY-MM-DD) in Lokalzeit um
+    function toLocalDayKey(d) {
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${y}-${m}-${day}`;
+    }
+
+    // Wandelt ein ICAL.Time-Objekt sicher in ein lokales Datum (Mitternacht) um
+    function icalTimeToLocalMidnight(icalTime) {
+      if (!icalTime) return null;
+      return new Date(icalTime.year, icalTime.month - 1, icalTime.day, 0, 0, 0, 0);
+    }
+
     function getDefaultParty(weekMonday) {
       const msPerWeek = 7 * 24 * 60 * 60 * 1000;
       const diffWeeks = Math.round((weekMonday - ANCHOR_MONDAY) / msPerWeek);
@@ -201,99 +212,89 @@
       return ROTATION[index];
     }
 
-    // Google Kalender Daten laden & für die nächsten 4 Wochen auswerten
     async function loadCalendarEvents(weeks) {
-      if (!ICAL_URL) return null;
-
-      // Zwei Proxys als Ausfallsicherheit hintereinander geschaltet
-      const proxies = [
-        "https://corsproxy.io/?" + encodeURIComponent(ICAL_URL),
-        "https://api.allorigins.win/raw?url=" + encodeURIComponent(ICAL_URL)
-      ];
-
-      let icsText = null;
-      for (const proxyUrl of proxies) {
-        try {
-          const response = await fetch(proxyUrl);
-          if (response.ok) {
-            const text = await response.text();
-            if (text.includes("BEGIN:VCALENDAR")) {
-              icsText = text;
-              break;
-            }
-          }
-        } catch (err) {
-          // Nächsten Proxy versuchen
-        }
-      }
-
-      if (!icsText) throw new Error("Kalender konnte nicht geladen werden");
+      const response = await fetch(CALENDAR_FILE, { cache: "no-store" });
+      if (!response.ok) throw new Error("calendar.ics nicht gefunden (" + response.status + ")");
+      const icsText = await response.text();
+      if (!icsText.includes("BEGIN:VCALENDAR")) throw new Error("Keine gültige ICS-Datei");
 
       const jcalData = ICAL.parse(icsText);
       const comp = new ICAL.Component(jcalData);
       const vevents = comp.getAllSubcomponents("vevent");
 
-      const rangeEnd = ICAL.Time.fromJSDate(new Date(weeks[3].sunday.getTime() + 86400000), false);
+      const rangeStartDay = new Date(weeks[0].monday.getFullYear(), weeks[0].monday.getMonth(), weeks[0].monday.getDate());
+      const rangeEndDay = new Date(weeks[3].sunday.getFullYear(), weeks[3].sunday.getMonth(), weeks[3].sunday.getDate() + 1);
+      const rangeEndIcal = ICAL.Time.fromJSDate(rangeEndDay, false);
 
-      // Map für Ausnahmen / verschobene Einzeltermine (RECURRENCE-ID)
       const exceptions = {};
       vevents.forEach(ve => {
         const event = new ICAL.Event(ve);
         if (event.isRecurrenceException()) {
           const uid = event.uid;
-          const recId = event.recurrenceId.toString();
+          const recId = event.recurrenceId ? event.recurrenceId.toString() : "";
           if (!exceptions[uid]) exceptions[uid] = {};
           exceptions[uid][recId] = event;
         }
       });
 
-      const foundItems = [];
+      const occurrences = [];
 
       vevents.forEach(ve => {
         const event = new ICAL.Event(ve);
         if (event.isRecurrenceException()) return;
 
         if (event.isRecurring()) {
-          const expand = event.iterator();
+          const iter = event.iterator();
           let next;
-          while ((next = expand.next())) {
-            if (next.compare(rangeEnd) > 0) break;
+          let safety = 0;
+          while ((next = iter.next()) && safety < 500) {
+            safety++;
+            if (next.compare(rangeEndIcal) > 0) break;
+
             const recKey = next.toString();
             const actualEvent = (exceptions[event.uid] && exceptions[event.uid][recKey])
               ? exceptions[event.uid][recKey]
               : event;
 
-            const startJs = (exceptions[event.uid] && exceptions[event.uid][recKey])
-              ? actualEvent.startDate.toJSDate()
-              : next.toJSDate();
+            const startSource = (exceptions[event.uid] && exceptions[event.uid][recKey])
+              ? actualEvent.startDate
+              : next;
 
-            const durationMs = actualEvent.endDate.toJSDate() - actualEvent.startDate.toJSDate();
-            const endJs = new Date(startJs.getTime() + durationMs);
+            const startDay = icalTimeToLocalMidnight(startSource);
+            const origStartDay = icalTimeToLocalMidnight(actualEvent.startDate);
+            const origEndDay = icalTimeToLocalMidnight(actualEvent.endDate);
 
-            if (endJs > weeks[0].monday && startJs <= weeks[3].sunday) {
-              foundItems.push({
-                title: actualEvent.summary || "",
-                desc: actualEvent.description || "",
-                start: startJs,
-                end: endJs
+            let spanDays = 1;
+            if (origStartDay && origEndDay) {
+              spanDays = Math.max(1, Math.round((origEndDay - origStartDay) / 86400000));
+            }
+
+            const endDay = new Date(startDay.getFullYear(), startDay.getMonth(), startDay.getDate() + spanDays);
+
+            if (endDay > rangeStartDay && startDay < rangeEndDay) {
+              occurrences.push({
+                title: (actualEvent.summary || "").trim(),
+                desc: (actualEvent.description || "").trim(),
+                startDay,
+                endDay
               });
             }
           }
         } else {
-          const startJs = event.startDate.toJSDate();
-          const endJs = event.endDate.toJSDate();
-          if (endJs > weeks[0].monday && startJs <= weeks[3].sunday) {
-            foundItems.push({
-              title: event.summary || "",
-              desc: event.description || "",
-              start: startJs,
-              end: endJs
+          const startDay = icalTimeToLocalMidnight(event.startDate);
+          const endDay = icalTimeToLocalMidnight(event.endDate);
+          if (startDay && endDay && endDay > rangeStartDay && startDay < rangeEndDay) {
+            occurrences.push({
+              title: (event.summary || "").trim(),
+              desc: (event.description || "").trim(),
+              startDay,
+              endDay
             });
           }
         }
       });
 
-      return foundItems;
+      return { occurrences, totalVevents: vevents.length };
     }
 
     async function render() {
@@ -304,34 +305,59 @@
       for (let i = 0; i < 4; i++) {
         const mon = new Date(currentMonday.getFullYear(), currentMonday.getMonth(), currentMonday.getDate() + (i * 7));
         const sun = new Date(mon.getFullYear(), mon.getMonth(), mon.getDate() + 6);
-        const wed = new Date(mon.getFullYear(), mon.getMonth(), mon.getDate() + 2, 12, 0, 0);
+        // Die 7 Tage der Woche als Mitternachts-Daten
+        const days = [];
+        for (let d = 0; d < 7; d++) {
+          days.push(new Date(mon.getFullYear(), mon.getMonth(), mon.getDate() + d));
+        }
         weeks.push({
           index: i,
           kw: getISOWeek(mon),
           monday: mon,
           sunday: sun,
-          midWeek: wed,
+          days,
           party: getDefaultParty(mon),
-          note: ""
+          note: "",
+          matchedFromCalendar: false
         });
       }
 
       const statusEl = document.getElementById("sync-status");
+      const debugEl = document.getElementById("debug-info");
 
       try {
-        const events = await loadCalendarEvents(weeks);
-        if (events) {
-          weeks.forEach(w => {
-            const matches = events.filter(ev => ev.start <= w.midWeek && ev.end > w.midWeek);
-            if (matches.length > 0) {
-              w.party = matches.map(m => m.title.trim()).join(" / ");
-              w.note = matches.map(m => m.desc.trim()).filter(Boolean).join(" · ");
-            }
-          });
-          statusEl.innerHTML = '<span class="status-dot"></span>Live mit Kalender verbunden';
-        }
+        const { occurrences, totalVevents } = await loadCalendarEvents(weeks);
+
+        weeks.forEach(w => {
+          // Alle Termine sammeln, die mindestens an einem Tag dieser Woche aktiv sind
+          const matched = occurrences.filter(occ =>
+            w.days.some(day => day >= occ.startDay && day < occ.endDay)
+          );
+
+          if (matched.length > 0) {
+            // Dubletten (gleicher Titel + gleiche Beschreibung) entfernen
+            const unique = [];
+            const seen = new Set();
+            matched.forEach(m => {
+              const key = `${m.title}|||${m.desc}`;
+              if (!seen.has(key)) {
+                seen.add(key);
+                unique.push(m);
+              }
+            });
+
+            w.party = unique.map(u => u.title).filter(Boolean).join(" / ") || w.party;
+            w.note = unique.map(u => u.desc).filter(Boolean).join(" · ");
+            w.matchedFromCalendar = true;
+          }
+        });
+
+        const matchedWeeksCount = weeks.filter(w => w.matchedFromCalendar).length;
+        statusEl.innerHTML = `<span class="status-dot"></span>Kalender gelesen (${matchedWeeksCount}/4 Wochen aus Kalender)`;
+        debugEl.textContent = `Termine im Export: ${totalVevents} · Treffer in 4 Wochen: ${occurrences.length}`;
       } catch (e) {
-        statusEl.innerHTML = '<span class="status-dot"></span>Standard-Turnus (Offline-Fallback)';
+        statusEl.innerHTML = '<span class="status-dot"></span>Standard-Turnus (Kalender nicht lesbar)';
+        debugEl.textContent = 'Hinweis: ' + e.message;
       }
 
       const container = document.getElementById("schedule");
