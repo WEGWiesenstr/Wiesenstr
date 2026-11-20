@@ -1,0 +1,30 @@
+name: Sync Hausplan Calendar
+
+on:
+  schedule:
+    - cron: "0 * * * *" # läuft jede volle Stunde automatisch
+  workflow_dispatch: # erlaubt auch manuelles Starten per Klick
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download Google Calendar ICS
+        run: |
+          curl -fsSL "https://calendar.google.com/calendar/ical/871698cbe17d6d4210afd5cbf2649eace81cb26435a64df3358d55d9ce070368%40group.calendar.google.com/public/basic.ics" -o calendar.ics
+
+      - name: Commit updated calendar.ics
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add calendar.ics
+          if ! git diff --staged --quiet; then
+            git commit -m "Update calendar.ics"
+            git push
+          fi
