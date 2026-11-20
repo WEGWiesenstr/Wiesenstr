@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Hausplan – Flur & Winterdienst</title>
+
+  <!-- iOS / Apple App-Einstellungen -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Hausplan">
+  <meta name="theme-color" content="#ffffff">
+
+  <!-- Minimalistisches Schwarz-Weiß-Icon (SVG als Data-URI) -->
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='18' fill='%23111111'/%3E%3Ctext x='50' y='67' font-family='Arial, sans-serif' font-size='52' font-weight='bold' fill='%23ffffff' text-anchor='middle'%3EH%3C/text%3E%3C/svg%3E">
+  <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%23111111'/%3E%3Ctext x='50' y='67' font-family='Arial, sans-serif' font-size='52' font-weight='bold' fill='%23ffffff' text-anchor='middle'%3EH%3C/text%3E%3C/svg%3E">
+
+  <!-- Eingebettetes Web-Manifest (kein separates manifest.json nötig) -->
+  <link rel="manifest" href="data:application/manifest+json,%7B%22name%22%3A%22Hausplan%20%E2%80%93%20Flur%20%26%20Winterdienst%22%2C%22short_name%22%3A%22Hausplan%22%2C%22start_url%22%3A%22.%22%2C%22display%22%3A%22standalone%22%2C%22background_color%22%3A%22%23ffffff%22%2C%22theme_color%22%3A%22%23111111%22%7D">
+
+  <!-- Bibliothek zum Auslesen von Google Kalender (.ics) & Serienterminen -->
+  <script src="https://cdn.jsdelivr.net/npm/ical.js@1.5.0/build/ical.min.js"></script>
+  <style>
+    :root {
+      --bg: #ffffff;
+      --surface: #f7f7f7;
+      --border: #d4d4d4;
+      --border-active: #111111;
+      --text-main: #111111;
+      --text-muted: #555555;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+
+    body {
+      background-color: var(--bg);
+      color: var(--text-main);
+      padding: 20px 16px 40px;
+      max-width: 520px;
+      margin: 0 auto;
+      line-height: 1.4;
+    }
+
+    header {
+      border-bottom: 2px solid var(--text-main);
+      padding-bottom: 12px;
+      margin-bottom: 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+    }
+
+    h1 {
+      font-size: 1.35rem;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      text-transform: uppercase;
+    }
+
+    .subtitle {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      font-weight: 500;
+    }
+
+    .week-list {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .card {
+      border: 1px solid var(--border);
+      background: var(--bg);
+      padding: 16px;
+      border-radius: 4px;
+    }
+
+    .card.current {
+      border: 2.5px solid var(--border-active);
+      background: var(--surface);
+      padding: 20px 18px;
+    }
+
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+      font-size: 0.82rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      font-weight: 600;
+    }
+
+    .badge {
+      background: var(--text-main);
+      color: var(--bg);
+      padding: 2px 7px;
+      font-size: 0.72rem;
+      font-weight: 700;
+      border-radius: 2px;
+    }
+
+    .party {
+      font-size: 1.65rem;
+      font-weight: 800;
+      letter-spacing: -0.01em;
+      margin-bottom: 4px;
+    }
+
+    .card.current .party {
+      font-size: 2.1rem;
+    }
+
+    .note {
+      font-size: 0.88rem;
+      color: var(--text-muted);
+      margin-top: 6px;
+      padding-top: 6px;
+      border-top: 1px dashed var(--border);
+    }
+
+    .footer {
+      margin-top: 28px;
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      border-top: 1px solid var(--border);
+      padding-top: 12px;
+      display: flex;
+      justify-content: space-between;
+    }
+
+    .status-dot {
+      display: inline-block;
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #111;
+      margin-right: 5px;
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <h1>Hausplan</h1>
+    <span class="subtitle">Flurwoche & Winterdienst</span>
+  </header>
+
+  <main class="week-list" id="schedule">
+    <div class="card">Lade aktuellen Plan...</div>
+  </main>
+
+  <footer class="footer">
+    <span id="sync-status"><span class="status-dot"></span>Verbinde mit Kalender...</span>
+    <span>Turnus: Mo – So</span>
+  </footer>
+
+  <script>
+    // Dein verknüpfter Google Kalender (Hausplan)
+    const ICAL_URL = "https://calendar.google.com/calendar/ical/871698cbe17d6d4210afd5cbf2649eace81cb26435a64df3358d55d9ce070368%40group.calendar.google.com/public/basic.ics";
+
+    // Referenz-Startdatum (Montag der Woche, in der RECHTS dran war: 16.11.2026)
+    const ANCHOR_MONDAY = new Date(2026, 10, 16);
+    const ROTATION = ["RECHTS", "LINKS", "MITTE"];
+
+    // Hilfsfunktion: Montag der Woche zu einem Datum finden
+    function getMonday(d) {
+      const date = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+      const day = date.getDay();
+      const diff = date.getDate() - day + (day === 0 ? -6 : 1);
+      return new Date(date.setDate(diff));
+    }
+
+    // Hilfsfunktion: Kalenderwoche berechnen (ISO 8601)
+    function getISOWeek(d) {
+      const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+      const dayNum = date.getUTCDay() || 7;
+      date.setUTCDate(date.getUTCDate() + 4 - dayNum);
+      const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
+      return Math.ceil((((date - yearStart) / 86400000) + 1) / 7);
+    }
+
+    // Hilfsfunktion: Datum formatieren (z.B. 16.11.)
+    function fmtDate(d) {
+      return String(d.getDate()).padStart(2, '0') + '.' + String(d.getMonth() + 1).padStart(2, '0') + '.';
+    }
+
+    // Standard-Turnus berechnen (Fallback)
+    function getDefaultParty(weekMonday) {
+      const msPerWeek = 7 * 24 * 60 * 60 * 1000;
+      const diffWeeks = Math.round((weekMonday - ANCHOR_MONDAY) / msPerWeek);
+      const index = ((diffWeeks % 3) + 3) % 3;
+      return ROTATION[index];
+    }
+
+    // Google Kalender Daten laden & für die nächsten 4 Wochen auswerten
+    async function loadCalendarEvents(weeks) {
+      if (!ICAL_URL) return null;
+
+      // Zwei Proxys als Ausfallsicherheit hintereinander geschaltet
+      const proxies = [
+        "https://corsproxy.io/?" + encodeURIComponent(ICAL_URL),
+        "https://api.allorigins.win/raw?url=" + encodeURIComponent(ICAL_URL)
+      ];
+
+      let icsText = null;
+      for (const proxyUrl of proxies) {
+        try {
+          const response = await fetch(proxyUrl);
+          if (response.ok) {
+            const text = await response.text();
+            if (text.includes("BEGIN:VCALENDAR")) {
+              icsText = text;
+              break;
+            }
+          }
+        } catch (err) {
+          // Nächsten Proxy versuchen
+        }
+      }
+
+      if (!icsText) throw new Error("Kalender konnte nicht geladen werden");
+
+      const jcalData = ICAL.parse(icsText);
+      const comp = new ICAL.Component(jcalData);
+      const vevents = comp.getAllSubcomponents("vevent");
+
+      const rangeEnd = ICAL.Time.fromJSDate(new Date(weeks[3].sunday.getTime() + 86400000), false);
+
+      // Map für Ausnahmen / verschobene Einzeltermine (RECURRENCE-ID)
+      const exceptions = {};
+      vevents.forEach(ve => {
+        const event = new ICAL.Event(ve);
+        if (event.isRecurrenceException()) {
+          const uid = event.uid;
+          const recId = event.recurrenceId.toString();
+          if (!exceptions[uid]) exceptions[uid] = {};
+          exceptions[uid][recId] = event;
+        }
+      });
+
+      const foundItems = [];
+
+      vevents.forEach(ve => {
+        const event = new ICAL.Event(ve);
+        if (event.isRecurrenceException()) return;
+
+        if (event.isRecurring()) {
+          const expand = event.iterator();
+          let next;
+          while ((next = expand.next())) {
+            if (next.compare(rangeEnd) > 0) break;
+            const recKey = next.toString();
+            const actualEvent = (exceptions[event.uid] && exceptions[event.uid][recKey])
+              ? exceptions[event.uid][recKey]
+              : event;
+
+            const startJs = (exceptions[event.uid] && exceptions[event.uid][recKey])
+              ? actualEvent.startDate.toJSDate()
+              : next.toJSDate();
+
+            const durationMs = actualEvent.endDate.toJSDate() - actualEvent.startDate.toJSDate();
+            const endJs = new Date(startJs.getTime() + durationMs);
+
+            if (endJs > weeks[0].monday && startJs <= weeks[3].sunday) {
+              foundItems.push({
+                title: actualEvent.summary || "",
+                desc: actualEvent.description || "",
+                start: startJs,
+                end: endJs
+              });
+            }
+          }
+        } else {
+          const startJs = event.startDate.toJSDate();
+          const endJs = event.endDate.toJSDate();
+          if (endJs > weeks[0].monday && startJs <= weeks[3].sunday) {
+            foundItems.push({
+              title: event.summary || "",
+              desc: event.description || "",
+              start: startJs,
+              end: endJs
+            });
+          }
+        }
+      });
+
+      return foundItems;
+    }
+
+    async function render() {
+      const today = new Date();
+      const currentMonday = getMonday(today);
+      const weeks = [];
+
+      for (let i = 0; i < 4; i++) {
+        const mon = new Date(currentMonday.getFullYear(), currentMonday.getMonth(), currentMonday.getDate() + (i * 7));
+        const sun = new Date(mon.getFullYear(), mon.getMonth(), mon.getDate() + 6);
+        const wed = new Date(mon.getFullYear(), mon.getMonth(), mon.getDate() + 2, 12, 0, 0);
+        weeks.push({
+          index: i,
+          kw: getISOWeek(mon),
+          monday: mon,
+          sunday: sun,
+          midWeek: wed,
+          party: getDefaultParty(mon),
+          note: ""
+        });
+      }
+
+      const statusEl = document.getElementById("sync-status");
+
+      try {
+        const events = await loadCalendarEvents(weeks);
+        if (events) {
+          weeks.forEach(w => {
+            const matches = events.filter(ev => ev.start <= w.midWeek && ev.end > w.midWeek);
+            if (matches.length > 0) {
+              w.party = matches.map(m => m.title.trim()).join(" / ");
+              w.note = matches.map(m => m.desc.trim()).filter(Boolean).join(" · ");
+            }
+          });
+          statusEl.innerHTML = '<span class="status-dot"></span>Live mit Kalender verbunden';
+        }
+      } catch (e) {
+        statusEl.innerHTML = '<span class="status-dot"></span>Standard-Turnus (Offline-Fallback)';
+      }
+
+      const container = document.getElementById("schedule");
+      container.innerHTML = weeks.map(w => {
+        const isCurrent = w.index === 0;
+        const label = isCurrent ? "Aktuelle Woche" : (w.index === 1 ? "Nächste Woche" : `In ${w.index} Wochen`);
+        return `
+          <div class="card ${isCurrent ? 'current' : ''}">
+            <div class="card-header">
+              <span>KW ${w.kw} · ${fmtDate(w.monday)} – ${fmtDate(w.sunday)}</span>
+              ${isCurrent ? '<span class="badge">AKTUELL</span>' : `<span>${label}</span>`}
+            </div>
+            <div class="party">${escapeHtml(w.party)}</div>
+            ${w.note ? `<div class="note">${escapeHtml(w.note)}</div>` : ''}
+          </div>
+        `;
+      }).join("");
+    }
+
+    function escapeHtml(str) {
+      return str.replace(/[&<>"']/g, m => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+      }[m]));
+    }
+
+    render();
+  </script>
+</body>
+</html>
